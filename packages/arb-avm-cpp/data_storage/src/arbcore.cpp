@@ -332,16 +332,16 @@ rocksdb::Status ArbCore::saveAssertion(ReadWriteTransaction& tx,
 }
 
 rocksdb::Status ArbCore::reorgToLastest(ValueCache& cache) {
-    return reorgToMessageOrBefore(InboxSequenceNumber{0}, true, cache);
+    return reorgToMessageOrBefore(0, true, cache);
 }
 
 // reorgToMessageOrBefore resets the checkpoint and database entries
 // such that machine state is at or before the requested message. cleaning
 // up old references as needed.
-// If use_latest is true, message_sequence_number is ignored and the latest
+// If use_latest is true, remaining_message_count is ignored and the latest
 // checkpoint is used.
 rocksdb::Status ArbCore::reorgToMessageOrBefore(
-    const InboxSequenceNumber& last_valid_sequence_number,
+    const uint256_t& remaining_message_count,
     bool use_latest,
     ValueCache& cache) {
     std::variant<MachineStateKeys, rocksdb::Status> setup =
@@ -350,7 +350,7 @@ rocksdb::Status ArbCore::reorgToMessageOrBefore(
     if (use_latest) {
         std::cerr << "Reloading latest checkpoint" << std::endl;
     } else {
-        std::cerr << "Reorganizing to message " << last_valid_sequence_number
+        std::cerr << "Reorganizing to message count" << remaining_message_count
                   << std::endl;
     }
 
@@ -378,9 +378,9 @@ rocksdb::Status ArbCore::reorgToMessageOrBefore(
                 auto checkpoint = extractMachineStateKeys(
                     checkpoint_vector.begin(), checkpoint_vector.end());
 
-                if (checkpoint.getTotalMessagesRead() == 0 || use_latest ||
-                    last_valid_sequence_number >=
-                        *checkpoint.getLastReadMessageNumber()) {
+                if (remaining_message_count >=
+                        checkpoint.getTotalMessagesRead() ||
+                    use_latest) {
                     if (isValid(tx, checkpoint.output.fully_processed_inbox,
                                 checkpoint.staged_message)) {
                         // Good checkpoint
@@ -1761,7 +1761,7 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
         if (!isMachineValid) {
             // Reorg checkpoint and everything else
             auto reorg_status = reorgToMessageOrBefore(
-                new_next_sequence_number - 1, false, cache);
+                new_next_sequence_number.raw_seq_num, false, cache);
             if (!reorg_status.ok()) {
                 std::cerr << "error in addMessages while reorging: "
                           << reorg_status.ToString() << std::endl;

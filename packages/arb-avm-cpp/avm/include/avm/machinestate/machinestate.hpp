@@ -172,7 +172,6 @@ struct MachineStateKeys {
     std::optional<Tuple> getStagedMessageTuple() const;
 
     uint256_t getTotalMessagesRead() const;
-    std::optional<InboxSequenceNumber> getLastReadMessageNumber() const;
     std::optional<uint256_t> getInboxAcc() const;
     std::optional<uint256_t> machineHash() const;
 };

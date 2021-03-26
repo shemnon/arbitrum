@@ -63,15 +63,6 @@ uint256_t MachineStateKeys::getTotalMessagesRead() const {
     return output.fully_processed_inbox.countWithStaged(staged_message);
 }
 
-std::optional<InboxSequenceNumber> MachineStateKeys::getLastReadMessageNumber()
-    const {
-    uint256_t total_read = getTotalMessagesRead();
-    if (total_read == 0) {
-        return std::nullopt;
-    }
-    return InboxSequenceNumber{total_read - 1};
-}
-
 std::optional<Tuple> MachineStateKeys::getStagedMessageTuple() const {
     if (std::holds_alternative<uint256_t>(staged_message)) {
         // Staged message is unresolved

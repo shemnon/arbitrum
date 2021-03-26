@@ -157,7 +157,7 @@ class ArbCore {
         bool after_gas);
     rocksdb::Status reorgToLastest(ValueCache& cache);
     rocksdb::Status reorgToMessageOrBefore(
-        const InboxSequenceNumber& message_sequence_number,
+        const uint256_t& remaining_message_count,
         bool use_latest,
         ValueCache& cache);
     template <class T>
