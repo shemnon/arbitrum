@@ -51,6 +51,27 @@ MachineStateKeys::MachineStateKeys(const MachineState& machine)
       status(machine.state),
       output(machine.output) {}
 
+bool MachineStateKeys::stagedMessageUnresolved() const {
+    return std::holds_alternative<uint256_t>(staged_message);
+}
+
+std::optional<uint256_t> MachineStateKeys::getInboxAcc() const {
+    return output.fully_processed_inbox.accWithStaged(staged_message);
+}
+
+uint256_t MachineStateKeys::getTotalMessagesRead() const {
+    return output.fully_processed_inbox.countWithStaged(staged_message);
+}
+
+std::optional<InboxSequenceNumber> MachineStateKeys::getLastReadMessageNumber()
+    const {
+    uint256_t total_read = getTotalMessagesRead();
+    if (total_read == 0) {
+        return std::nullopt;
+    }
+    return InboxSequenceNumber{total_read - 1};
+}
+
 std::optional<Tuple> MachineStateKeys::getStagedMessageTuple() const {
     if (std::holds_alternative<uint256_t>(staged_message)) {
         // Staged message is unresolved

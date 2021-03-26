@@ -23,6 +23,48 @@
 
 using Address = std::array<unsigned char, 20>;
 
+struct InboxSequenceNumber {
+    uint256_t raw_seq_num;
+
+    InboxSequenceNumber() = default;
+    explicit InboxSequenceNumber(const uint256_t& num_) : raw_seq_num(num_) {}
+
+    bool operator==(const InboxSequenceNumber& o) const {
+        return raw_seq_num == o.raw_seq_num;
+    }
+
+    bool operator>=(const InboxSequenceNumber& o) const {
+        return raw_seq_num >= o.raw_seq_num;
+    }
+
+    bool operator>(const InboxSequenceNumber& o) const {
+        return raw_seq_num > o.raw_seq_num;
+    }
+
+    bool operator<(const InboxSequenceNumber& o) const {
+        return raw_seq_num < o.raw_seq_num;
+    }
+
+    bool operator<=(const InboxSequenceNumber& o) const {
+        return raw_seq_num <= o.raw_seq_num;
+    }
+
+    InboxSequenceNumber& operator+=(const uint256_t& val) {
+        raw_seq_num += val;
+        return *this;
+    }
+
+    InboxSequenceNumber operator-(const uint256_t& val) {
+        return InboxSequenceNumber{raw_seq_num - val};
+    }
+};
+
+inline std::ostream& operator<<(std::ostream& out,
+                                const InboxSequenceNumber& seq) {
+    out << seq.raw_seq_num;
+    return out;
+}
+
 struct InboxMessage {
    public:
     // arb_gas_used not serialized/deserialized because it is part of index
@@ -30,7 +72,7 @@ struct InboxMessage {
     Address sender{};
     uint256_t block_number;
     uint256_t timestamp;
-    uint256_t inbox_sequence_number;
+    InboxSequenceNumber inbox_sequence_number;
     uint256_t gas_price_l1;
     std::vector<unsigned char> data;
 
@@ -39,7 +81,7 @@ struct InboxMessage {
                  const Address& sender,
                  uint256_t block_number,
                  uint256_t timestamp,
-                 uint256_t inbox_sequence_number,
+                 InboxSequenceNumber inbox_sequence_number,
                  uint256_t gas_price_l1,
                  std::vector<unsigned char> data)
         : kind(kind),

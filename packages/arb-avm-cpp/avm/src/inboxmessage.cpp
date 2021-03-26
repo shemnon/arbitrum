@@ -27,7 +27,7 @@ uint256_t InboxMessage::hash(const uint256_t& previous_inbox_acc) const {
     inbox_vector.insert(inbox_vector.end(), sender.begin(), sender.end());
     marshal_uint256_t(block_number, inbox_vector);
     marshal_uint256_t(timestamp, inbox_vector);
-    marshal_uint256_t(inbox_sequence_number, inbox_vector);
+    marshal_uint256_t(inbox_sequence_number.raw_seq_num, inbox_vector);
     marshal_uint256_t(gas_price_l1, inbox_vector);
     auto data_hash = ::hash(data);
     marshal_uint256_t(data_hash, inbox_vector);
@@ -90,9 +90,13 @@ InboxMessage extractInboxMessageImpl(
     std::vector<unsigned char> data;
     data.insert(data.end(), current_iter, end);
 
-    return InboxMessage{
-        kind,         sender, block_number, timestamp, inbox_sequence_number,
-        gas_price_l1, data};
+    return InboxMessage{kind,
+                        sender,
+                        block_number,
+                        timestamp,
+                        InboxSequenceNumber{inbox_sequence_number},
+                        gas_price_l1,
+                        data};
 }
 
 void InboxMessage::serializeHeader(
@@ -102,7 +106,7 @@ void InboxMessage::serializeHeader(
                              sender.end());
     marshal_uint256_t(block_number, state_data_vector);
     marshal_uint256_t(timestamp, state_data_vector);
-    marshal_uint256_t(inbox_sequence_number, state_data_vector);
+    marshal_uint256_t(inbox_sequence_number.raw_seq_num, state_data_vector);
     marshal_uint256_t(gas_price_l1, state_data_vector);
 }
 
@@ -135,7 +139,7 @@ Tuple InboxMessage::toTuple() const {
             block_number,
             timestamp,
             intx::be::load<uint256_t>(raw_sender),
-            inbox_sequence_number,
+            inbox_sequence_number.raw_seq_num,
             gas_price_l1,
             uint256_t{data.size()},
             Buffer::fromData(data)};
@@ -167,7 +171,11 @@ InboxMessage InboxMessage::fromTuple(const Tuple& tup) {
     for (uint64_t i = 0; i < data_size; i++) {
         data.push_back(data_buf.get(i));
     }
-    return InboxMessage{
-        kind,         sender, block_number, timestamp, inbox_sequence_number,
-        gas_price_l1, data};
+    return InboxMessage{kind,
+                        sender,
+                        block_number,
+                        timestamp,
+                        InboxSequenceNumber{inbox_sequence_number},
+                        gas_price_l1,
+                        data};
 }

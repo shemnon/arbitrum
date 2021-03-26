@@ -28,7 +28,7 @@
 
 struct MessageEntry {
     // sequence_number not serialized/deserialized because it is part of index
-    uint256_t sequence_number{};
+    InboxSequenceNumber sequence_number{};
 
     uint256_t inbox_acc;
     uint64_t block_height{};
@@ -36,7 +36,7 @@ struct MessageEntry {
     std::vector<unsigned char> data;
 
     MessageEntry() = default;
-    MessageEntry(uint256_t sequence_number,
+    MessageEntry(const InboxSequenceNumber& sequence_number,
                  uint256_t inbox_acc,
                  uint64_t block_height,
                  bool last_message_in_block,
@@ -48,11 +48,11 @@ struct MessageEntry {
           data(std::move(message)) {}
 };
 
-MessageEntry extractMessageEntry(uint256_t sequence_number,
+MessageEntry extractMessageEntry(const InboxSequenceNumber& sequence_number,
                                  rocksdb::Slice value);
 
 MessageEntry deserializeMessageEntry(
-    uint256_t sequence_number,
+    const InboxSequenceNumber& sequence_number,
     const std::vector<unsigned char>& entry_vector);
 
 std::vector<unsigned char> serializeMessageEntry(

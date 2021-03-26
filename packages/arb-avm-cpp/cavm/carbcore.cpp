@@ -181,7 +181,8 @@ int arbCoreGetInboxAcc(CArbCore* arbcore_ptr,
                        void* ret) {
     auto arb_core = static_cast<ArbCore*>(arbcore_ptr);
     try {
-        auto result = arb_core->getInboxAcc(receiveUint256(index_ptr));
+        auto result = arb_core->getInboxAcc(
+            InboxSequenceNumber{receiveUint256(index_ptr)});
         if (!result.status.ok()) {
             return false;
         }
@@ -202,8 +203,9 @@ int arbCoreGetInboxAccPair(CArbCore* arbcore_ptr,
                            void* ret2) {
     auto arb_core = static_cast<ArbCore*>(arbcore_ptr);
     try {
-        auto result = arb_core->getInboxAccPair(receiveUint256(index1_ptr),
-                                                receiveUint256(index2_ptr));
+        auto result = arb_core->getInboxAccPair(
+            InboxSequenceNumber{receiveUint256(index1_ptr)},
+            InboxSequenceNumber{receiveUint256(index2_ptr)});
         if (!result.status.ok()) {
             return false;
         }

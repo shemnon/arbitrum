@@ -19,7 +19,7 @@
 #include "value/referencecount.hpp"
 #include "value/utils.hpp"
 
-MessageEntry extractMessageEntry(uint256_t sequence_number,
+MessageEntry extractMessageEntry(const InboxSequenceNumber& sequence_number,
                                  const rocksdb::Slice value) {
     // Extract message entry
     auto entry_vector =
@@ -29,7 +29,7 @@ MessageEntry extractMessageEntry(uint256_t sequence_number,
 }
 
 MessageEntry deserializeMessageEntry(
-    const uint256_t sequence_number,
+    const InboxSequenceNumber& sequence_number,
     const std::vector<unsigned char>& entry_vector) {
     auto current_iter = entry_vector.begin();
 
@@ -63,8 +63,7 @@ bool operator==(const MessageEntry& lhs, const MessageEntry& rhs) {
            lhs.inbox_acc == rhs.inbox_acc &&
            lhs.block_height == rhs.block_height &&
            lhs.last_message_in_block == rhs.last_message_in_block &&
-           lhs.data.size() == rhs.data.size() &&
-           memcmp(lhs.data.data(), rhs.data.data(), lhs.data.size()) == 0;
+           lhs.data == rhs.data;
 }
 
 bool operator!=(const MessageEntry& lhs, const MessageEntry& rhs) {

@@ -67,7 +67,8 @@ void runCheckArbCore(
         REQUIRE(tries < 5);
     }
 
-    auto accRes = arbCore->getInboxAcc(target_message_count - 1);
+    auto accRes =
+        arbCore->getInboxAcc(InboxSequenceNumber{target_message_count - 1});
     REQUIRE(accRes.status.ok());
     REQUIRE(accRes.data != 0);
 
@@ -257,7 +258,7 @@ TEST_CASE("ArbCore inbox") {
     uint256_t inbox_acc = 0;
     for (int i = 0; i < 5; i++) {
         std::vector<std::vector<unsigned char>> raw_messages;
-        auto message = InboxMessage(0, {}, i, 0, i, 0, {});
+        auto message = InboxMessage(0, {}, i, 0, InboxSequenceNumber{i}, 0, {});
         raw_messages.push_back(message.serialize());
         INFO("RUN " << i);
         runCheckArbCore(arbCore, raw_messages, inbox_acc, i + 1, 0, i + 1,

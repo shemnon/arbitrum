@@ -65,16 +65,16 @@ ArbCore::ArbCore(std::shared_ptr<DataStorage> data_storage_)
 
 ValueResult<MessageEntry> ArbCore::getMessageEntry(
     const ReadTransaction& tx,
-    uint256_t message_sequence_number) const {
+    const InboxSequenceNumber& message_sequence_number) const {
     std::vector<unsigned char> previous_key;
-    marshal_uint256_t(message_sequence_number, previous_key);
+    marshal_uint256_t(message_sequence_number.raw_seq_num, previous_key);
 
     auto messages_inserted = messageEntryInsertedCountImpl(tx);
     if (!messages_inserted.status.ok()) {
         return {messages_inserted.status, {}};
     }
 
-    if (message_sequence_number >= messages_inserted.data) {
+    if (message_sequence_number.raw_seq_num >= messages_inserted.data) {
         // Don't allow stale entries to be used
         return {rocksdb::Status::NotFound(), {}};
     }
@@ -169,7 +169,7 @@ rocksdb::Status ArbCore::initialize(const LoadedExecutable& executable) {
     // Use latest existing checkpoint
     ValueCache cache{1, 0};
 
-    auto status = reorgToMessageOrBefore(0, true, cache);
+    auto status = reorgToLastest(cache);
     if (status.ok()) {
         return status;
     }
@@ -331,13 +331,17 @@ rocksdb::Status ArbCore::saveAssertion(ReadWriteTransaction& tx,
     return rocksdb::Status::OK();
 }
 
+rocksdb::Status ArbCore::reorgToLastest(ValueCache& cache) {
+    return reorgToMessageOrBefore(InboxSequenceNumber{0}, true, cache);
+}
+
 // reorgToMessageOrBefore resets the checkpoint and database entries
 // such that machine state is at or before the requested message. cleaning
 // up old references as needed.
 // If use_latest is true, message_sequence_number is ignored and the latest
 // checkpoint is used.
 rocksdb::Status ArbCore::reorgToMessageOrBefore(
-    const uint256_t& message_sequence_number,
+    const InboxSequenceNumber& last_valid_sequence_number,
     bool use_latest,
     ValueCache& cache) {
     std::variant<MachineStateKeys, rocksdb::Status> setup =
@@ -346,7 +350,7 @@ rocksdb::Status ArbCore::reorgToMessageOrBefore(
     if (use_latest) {
         std::cerr << "Reloading latest checkpoint" << std::endl;
     } else {
-        std::cerr << "Reorganizing to message " << message_sequence_number
+        std::cerr << "Reorganizing to message " << last_valid_sequence_number
                   << std::endl;
     }
 
@@ -373,9 +377,10 @@ rocksdb::Status ArbCore::reorgToMessageOrBefore(
                     it->value().data() + it->value().size());
                 auto checkpoint = extractMachineStateKeys(
                     checkpoint_vector.begin(), checkpoint_vector.end());
+
                 if (checkpoint.getTotalMessagesRead() == 0 || use_latest ||
-                    (message_sequence_number >=
-                     checkpoint.getTotalMessagesRead() - 1)) {
+                    last_valid_sequence_number >=
+                        *checkpoint.getLastReadMessageNumber()) {
                     if (isValid(tx, checkpoint.output.fully_processed_inbox,
                                 checkpoint.staged_message)) {
                         // Good checkpoint
@@ -660,11 +665,10 @@ void ArbCore::operator()() {
                 << "Core thread operating on invalid machine. Rolling back."
                 << std::endl;
             assert(false);
-            auto status = reorgToMessageOrBefore(0, true, cache);
+            auto status = reorgToLastest(cache);
             if (!status.ok()) {
-                std::cerr
-                    << "Error in core thread calling reorgToMessageOrBefore: "
-                    << status.ToString() << std::endl;
+                std::cerr << "Error in core thread while reorging: "
+                          << status.ToString() << std::endl;
             }
         }
         if (message_data_status == MESSAGES_READY) {
@@ -828,8 +832,8 @@ void ArbCore::operator()() {
             if (machine->machine_state.stagedMessageUnresolved()) {
                 // Resolve staged message if possible.  If message not found,
                 // machine will just be blocked
-                auto sequence_number =
-                    machine->machine_state.getTotalMessagesRead() - 1;
+                InboxSequenceNumber sequence_number{
+                    machine->machine_state.getTotalMessagesRead() - 1};
                 auto message_lookup = getMessageEntry(tx, sequence_number);
                 if (message_lookup.status.ok()) {
                     auto inbox_message =
@@ -1068,8 +1072,8 @@ ArbCore::getMessagesImpl(const ReadTransaction& tx,
     std::optional<uint256_t> next_block_height;
     auto last_index = results.data.size() - 1;
     for (size_t i = 0; i <= last_index; i++) {
-        auto message_entry =
-            extractMessageEntry(0, vecToSlice(results.data[i]));
+        auto message_entry = extractMessageEntry(InboxSequenceNumber{0},
+                                                 vecToSlice(results.data[i]));
 
         messages.push_back(message_entry.data);
         if (i == last_index && message_entry.last_message_in_block) {
@@ -1109,7 +1113,7 @@ ValueResult<std::vector<std::vector<unsigned char>>> ArbCore::getSends(
     return tx.sendGetVectorVector(key_slice, intx::narrow_cast<size_t>(count));
 }
 
-ValueResult<uint256_t> ArbCore::getInboxAcc(uint256_t index) {
+ValueResult<uint256_t> ArbCore::getInboxAcc(const InboxSequenceNumber& index) {
     ReadSnapshotTransaction tx(data_storage);
 
     auto result = getMessageEntry(tx, index);
@@ -1121,8 +1125,8 @@ ValueResult<uint256_t> ArbCore::getInboxAcc(uint256_t index) {
 }
 
 ValueResult<std::pair<uint256_t, uint256_t>> ArbCore::getInboxAccPair(
-    uint256_t index1,
-    uint256_t index2) {
+    const InboxSequenceNumber& index1,
+    const InboxSequenceNumber& index2) {
     ReadSnapshotTransaction tx(data_storage);
 
     auto result1 = getMessageEntry(tx, index1);
@@ -1362,8 +1366,9 @@ template <typename T>
 rocksdb::Status ArbCore::resolveStagedMessage(const ReadTransaction& tx,
                                               T& machine_state) {
     if (machine_state.stagedMessageUnresolved()) {
-        auto sequence_number = machine_state.getTotalMessagesRead();
-        auto message_lookup = getMessageEntry(tx, sequence_number - 1);
+        InboxSequenceNumber sequence_number{
+            machine_state.getTotalMessagesRead() - 1};
+        auto message_lookup = getMessageEntry(tx, sequence_number);
         if (!message_lookup.status.ok()) {
             // Unable to resolve cursor, no valid message found
             return message_lookup.status;
@@ -1432,7 +1437,8 @@ bool ArbCore::isValid(ReadTransaction& tx,
     }
 
     if (total_read > 0) {
-        auto stored_result = getMessageEntry(tx, total_read - 1);
+        InboxSequenceNumber last_read_message{total_read - 1};
+        auto stored_result = getMessageEntry(tx, last_read_message);
         if (!stored_result.status.ok()) {
             // Obsolete machine, reorg occurred
             return false;
@@ -1511,7 +1517,10 @@ ArbCore::executionCursorGetMessagesNoLock(
     auto total_size = results.data.size();
     messages.reserve(total_size);
     for (const auto& data : results.data) {
-        auto message_entry = extractMessageEntry(0, vecToSlice(data));
+        // Note: The first param is unused and can be 0 since we immediately
+        // extract the inner data and discard
+        auto message_entry =
+            extractMessageEntry(InboxSequenceNumber{0}, vecToSlice(data));
         auto inbox_message = extractInboxMessage(message_entry.data);
         messages.push_back(inbox_message);
     }
@@ -1602,8 +1611,8 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
     const uint256_t& prev_inbox_acc,
     const std::optional<uint256_t>& reorg_message_count,
     ValueCache& cache) {
-    uint256_t current_sequence_number = 0;
-    uint256_t existing_message_count = 0;
+    InboxSequenceNumber new_next_sequence_number{0};
+    InboxSequenceNumber old_next_sequence_number{0};
     uint256_t previous_inbox_acc = 0;
 
     {
@@ -1614,16 +1623,17 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
                       << message_count_result.status.ToString() << std::endl;
             return message_count_result.status;
         }
-        existing_message_count = message_count_result.data;
+        old_next_sequence_number =
+            InboxSequenceNumber{message_count_result.data};
 
         previous_inbox_acc = prev_inbox_acc;
 
         if (!new_messages.empty()) {
             auto first_message = extractInboxMessage(new_messages[0]);
 
-            if (first_message.inbox_sequence_number > 0) {
+            if (first_message.inbox_sequence_number.raw_seq_num > 0) {
                 if (first_message.inbox_sequence_number >
-                    existing_message_count) {
+                    old_next_sequence_number) {
                     // Not allowed to skip message sequence numbers, ask for
                     // older messages
                     return std::nullopt;
@@ -1649,7 +1659,7 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
                     return std::nullopt;
                 }
 
-                current_sequence_number = first_message.inbox_sequence_number;
+                new_next_sequence_number = first_message.inbox_sequence_number;
             }
         } else {
             if (!reorg_message_count) {
@@ -1663,20 +1673,43 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
                           << std::endl;
                 return std::nullopt;
             }
-            current_sequence_number = *reorg_message_count;
+            // TODO: Verify that this is intended
+            new_next_sequence_number =
+                InboxSequenceNumber{*reorg_message_count};
         }
     }
 
     size_t new_messages_count = new_messages.size();
     size_t new_messages_index = 0;
+
+    // Inbox message and whether it's the last in a block
+    std::vector<std::pair<InboxMessage, bool>> parsed_inbox_messages;
+    parsed_inbox_messages.reserve(new_messages_count);
+    auto next_inbox_message =
+        extractInboxMessage(new_messages[new_messages_index]);
+    for (size_t i = 0; i < new_messages_count; i++) {
+        auto current_inbox_message = std::move(next_inbox_message);
+        if (new_messages_index + 1 < new_messages_count) {
+            next_inbox_message =
+                extractInboxMessage(new_messages[new_messages_index + 1]);
+        }
+        bool last_message_in_block =
+            (last_block_complete &&
+             new_messages_index == new_messages_count - 1) ||
+            current_inbox_message.block_number !=
+                next_inbox_message.block_number;
+        parsed_inbox_messages.emplace_back(std::move(current_inbox_message),
+                                           last_message_in_block);
+    }
+
     {
         ReadTransaction tx(data_storage);
 
         // Skip any valid messages that we already have in database
-        while ((current_sequence_number < existing_message_count) &&
+        while ((new_next_sequence_number < old_next_sequence_number) &&
                (new_messages_index < new_messages_count)) {
             auto existing_message_entry =
-                getMessageEntry(tx, current_sequence_number);
+                getMessageEntry(tx, new_next_sequence_number);
             if (!existing_message_entry.status.ok()) {
                 return existing_message_entry.status;
             }
@@ -1687,9 +1720,8 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
                 break;
             }
 
-            if (existing_message_entry.data.last_message_in_block &&
-                !(last_block_complete &&
-                  new_messages_index == new_messages_count - 1)) {
+            if (existing_message_entry.data.last_message_in_block !=
+                parsed_inbox_messages[new_messages_index].second) {
                 // existing message was marked as last message in block but
                 // new message is not marked as last message, so they should be
                 // considered different
@@ -1698,11 +1730,11 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
 
             new_messages_index++;
             previous_inbox_acc = current_inbox_acc;
-            current_sequence_number += 1;
+            new_next_sequence_number += 1;
         }
     }
 
-    if (current_sequence_number < existing_message_count) {
+    if (new_next_sequence_number < old_next_sequence_number) {
         // Reorg occurred
         const std::lock_guard<std::mutex> lock(core_reorg_mutex);
 
@@ -1711,7 +1743,9 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
             ReadWriteTransaction tx(data_storage);
 
             // Truncate MessageEntries to last valid message
-            updateMessageEntryInsertedCount(tx, current_sequence_number);
+            // TODO: Verify that this is correct
+            updateMessageEntryInsertedCount(
+                tx, new_next_sequence_number.raw_seq_num);
 
             auto status = tx.commit();
             if (!status.ok()) {
@@ -1727,11 +1761,10 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
         if (!isMachineValid) {
             // Reorg checkpoint and everything else
             auto reorg_status = reorgToMessageOrBefore(
-                current_sequence_number - 1, false, cache);
+                new_next_sequence_number - 1, false, cache);
             if (!reorg_status.ok()) {
-                std::cerr
-                    << "error in addMessages calling reorgToMessageOrBefore: "
-                    << reorg_status.ToString() << std::endl;
+                std::cerr << "error in addMessages while reorging: "
+                          << reorg_status.ToString() << std::endl;
                 return reorg_status;
             }
         }
@@ -1740,39 +1773,20 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
     ReadWriteTransaction tx(data_storage);
 
     while (new_messages_index < new_messages_count) {
-        // Encode key
-        std::vector<unsigned char> key;
-        marshal_uint256_t(current_sequence_number, key);
-
+        auto& current_inbox_message = parsed_inbox_messages[new_messages_index];
         auto current_inbox_acc =
-            hash_inbox(previous_inbox_acc, new_messages[new_messages_index]);
-
-        auto next_inbox_message =
-            extractInboxMessage(new_messages[new_messages_index]);
-        auto current_inbox_message = std::move(next_inbox_message);
-        if (new_messages_index < new_messages_count) {
-            next_inbox_message =
-                extractInboxMessage(new_messages[new_messages_index]);
-        } else {
-            next_inbox_message = {};
-        }
-
-        bool last_message_in_block;
-        if (last_block_complete &&
-            ((new_messages_index == new_messages_count - 1) ||
-             current_inbox_message.block_number !=
-                 next_inbox_message.block_number)) {
-            last_message_in_block = true;
-        } else {
-            last_message_in_block = false;
-        }
-
+            current_inbox_message.first.hash(prev_inbox_acc);
         // Encode message entry
         auto messageEntry = MessageEntry{
-            current_sequence_number, current_inbox_acc,
-            intx::narrow_cast<uint64_t>(current_inbox_message.block_number),
-            last_message_in_block, (new_messages[new_messages_index])};
+            new_next_sequence_number, current_inbox_acc,
+            intx::narrow_cast<uint64_t>(
+                current_inbox_message.first.block_number),
+            current_inbox_message.second, (new_messages[new_messages_index])};
         auto serialized_messageentry = serializeMessageEntry(messageEntry);
+
+        // Encode key
+        std::vector<unsigned char> key;
+        marshal_uint256_t(new_next_sequence_number.raw_seq_num, key);
 
         // Save message entry into database
         auto put_status = tx.messageEntryPut(
@@ -1785,10 +1799,11 @@ std::optional<rocksdb::Status> ArbCore::addMessages(
 
         new_messages_index++;
         previous_inbox_acc = current_inbox_acc;
-        current_sequence_number += 1;
+        new_next_sequence_number += 1;
     }
 
-    updateMessageEntryInsertedCount(tx, current_sequence_number);
+    uint256_t new_total_message_count = new_next_sequence_number.raw_seq_num;
+    updateMessageEntryInsertedCount(tx, new_total_message_count);
 
     auto status = tx.commit();
     if (!status.ok()) {

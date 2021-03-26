@@ -222,10 +222,6 @@ DeleteResults deleteMachine(ReadWriteTransaction& tx, uint256_t machine_hash) {
     return delete_results;
 }
 
-bool MachineStateKeys::stagedMessageUnresolved() const {
-    return std::holds_alternative<uint256_t>(staged_message);
-}
-
 DbResult<MachineStateKeys> getMachineStateKeys(
     const ReadTransaction& transaction,
     uint256_t machineHash) {
@@ -309,12 +305,4 @@ SaveResults saveMachine(ReadWriteTransaction& transaction,
     serializeMachineStateKeys(MachineStateKeys(machine.machine_state),
                               serialized_state);
     return saveRefCountedData(transaction, key, serialized_state);
-}
-
-std::optional<uint256_t> MachineStateKeys::getInboxAcc() const {
-    return output.fully_processed_inbox.accWithStaged(staged_message);
-}
-
-uint256_t MachineStateKeys::getTotalMessagesRead() const {
-    return output.fully_processed_inbox.countWithStaged(staged_message);
 }

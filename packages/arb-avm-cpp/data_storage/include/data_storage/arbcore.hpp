@@ -155,8 +155,9 @@ class ArbCore {
         ReadTransaction& tx,
         const uint256_t& total_gas,
         bool after_gas);
+    rocksdb::Status reorgToLastest(ValueCache& cache);
     rocksdb::Status reorgToMessageOrBefore(
-        const uint256_t& message_sequence_number,
+        const InboxSequenceNumber& message_sequence_number,
         bool use_latest,
         ValueCache& cache);
     template <class T>
@@ -264,10 +265,10 @@ class ArbCore {
     ValueResult<std::vector<std::vector<unsigned char>>> getMessages(
         uint256_t index,
         uint256_t count) const;
-    ValueResult<uint256_t> getInboxAcc(uint256_t index);
+    ValueResult<uint256_t> getInboxAcc(const InboxSequenceNumber& index);
     ValueResult<std::pair<uint256_t, uint256_t>> getInboxAccPair(
-        uint256_t index1,
-        uint256_t index2);
+        const InboxSequenceNumber& index1,
+        const InboxSequenceNumber& index2);
 
    private:
     ValueResult<std::pair<std::vector<std::vector<unsigned char>>,
@@ -281,7 +282,7 @@ class ArbCore {
     // Private database interaction
     ValueResult<MessageEntry> getMessageEntry(
         const ReadTransaction& tx,
-        uint256_t message_sequence_number) const;
+        const InboxSequenceNumber& message_sequence_number) const;
     ValueResult<uint256_t> logInsertedCountImpl(
         const ReadTransaction& tx) const;
 
