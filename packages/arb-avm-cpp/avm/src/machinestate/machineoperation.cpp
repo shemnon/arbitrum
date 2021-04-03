@@ -869,6 +869,7 @@ void debug(MachineState& m) {
     m.stack.prepForMod(1);
     m.context.debug_prints.push_back(m.stack.pop());
     ++m.pc;
+    std::cout << "Debug Print: " << m.context.debug_prints.back() << std::endl;
 }
 
 void send(MachineState& m) {

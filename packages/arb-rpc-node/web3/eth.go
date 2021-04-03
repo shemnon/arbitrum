@@ -303,6 +303,7 @@ func (s *Server) EstimateGas(args CallTxArgs) (hexutil.Uint64, error) {
 		logging.Err(err).Msg("error estimating gas")
 		return 0, err
 	}
+	fmt.Println("estimate gas", res.GasUsed.Uint64(), res.FeeStats)
 	if res.ResultCode != evm.ReturnCode {
 		return 0, HandleCallError(res, s.ganacheMode)
 	}
