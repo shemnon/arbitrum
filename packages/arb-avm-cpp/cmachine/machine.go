@@ -28,6 +28,7 @@ package cmachine
 import "C"
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
 	"math/big"
 	"runtime"
 	"unsafe"
@@ -44,7 +45,21 @@ import (
 	"github.com/offchainlabs/arbitrum/packages/arb-util/value"
 )
 
-var logger = log.With().Caller().Stack().Str("component", "cmachine").Logger()
+var (
+	logger     = log.With().Caller().Stack().Str("component", "cmachine").Logger()
+	GasCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "arbitrum",
+		Subsystem: "arbosmachine",
+		Name:      "arbGas",
+		Help:      "Amount of ArbGas consumed to evaulate assertions",
+	})
+	StepsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "arbitrum",
+		Subsystem: "arbosmachine",
+		Name:      "steps",
+		Help:      "Number of steps in evaluated assertions",
+	})
+)
 
 type Machine struct {
 	c unsafe.Pointer
@@ -236,7 +251,10 @@ func (m *Machine) ExecuteAssertionAdvanced(
 		unsafeDataPointer(beforeLogAcc.Bytes()),
 	)
 
-	return makeExecutionAssertion(assertion)
+	executionAssertion, values, u, err := makeExecutionAssertion(assertion)
+	GasCounter.Add(float64(executionAssertion.NumGas))
+	StepsCounter.Add(float64(u))
+	return executionAssertion, values, u, err
 }
 
 func (m *Machine) MarshalForProof() ([]byte, []byte, error) {

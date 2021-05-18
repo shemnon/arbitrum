@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/offchainlabs/arbitrum/packages/arb-avm-cpp/cmachine"
 	"github.com/prometheus/client_golang/prometheus"
 	golog "log"
 	"net/http"
@@ -258,7 +259,7 @@ func startup() error {
 	)
 	goCollector := prometheus.NewGoCollector()
 	processCollector := prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{})
-	prometheusRegistry.MustRegister(avmGauge, methodCallCounter, goCollector, processCollector)
+	prometheusRegistry.MustRegister(avmGauge, methodCallCounter, goCollector, processCollector, cmachine.GasCounter, cmachine.StepsCounter)
 
 	srv := aggregator.NewServer(batch, rollupArgs.Address, db)
 	web3Server, err := web3.GenerateWeb3Server(srv, nil, false, nil, methodCallCounter)
